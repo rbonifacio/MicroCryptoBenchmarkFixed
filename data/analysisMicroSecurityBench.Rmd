@@ -1,0 +1,106 @@
+---
+title: "MicroCryptoAPI-Bench"
+author: "Rodrigo Bonifácio et al."
+date: "2/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd(".")
+library(sqldf)
+```
+
+## Load datasets 
+
+```{r cars}
+gt <- read.csv("gt.csv", head=T, sep=",")
+tools <- read.csv("results.csv", head=T, sep=",")
+horusec <- read.csv("horusec.csv", head=T, sep=",")
+
+horusec$vulnerabilities_file = gsub("br/unb/cic/bench02/mop/brokenhash/", "", horusec$vulnerabilities_file)
+
+horusec$vulnerabilities_file = gsub(".java", "", horusec$vulnerabilities_file)
+
+nrow(gt)
+colnames(gt)
+
+nrow(tools)
+colnames(tools)
+head(tools)
+
+nrow(horusec)
+colnames(horusec)
+
+sqldf("select Tool, count(*) from tools group by Tool")
+sqldf("select Tool, count(distinct TestCase) from tools group by Tool")
+
+```
+
+# Data cleanup
+
+```{r}
+sqldf("select count(*) from horusec")
+sqldf("select count(distinct vulnerabilities_file) from horusec")
+
+sqldf("select vulnerabilityID,  vulnerabilities_securityTool
+       from horusec")
+
+sqldf("select vulnerabilities_severity, count(*)
+       from horusec
+       group by vulnerabilities_severity")
+
+sqldf("select vulnerabilities_code, vulnerabilities_file
+       from horusec
+       where vulnerabilities_severity like '%HIGH%'")
+
+horusec <- sqldf("select  'horusec' as Tool,
+                         'Found broken hash functions' as Error,
+                          vulnerabilities_file as TestCase, 
+                          count(*)
+                  from horusec 
+                  group by Tool, Error, TestCase")
+
+horusec <- horusec[,c(1,2,3)]
+horusec
+```
+
+# Merge the datasets
+
+```{r}
+tools <- rbind(tools, horusec)
+nrow(tools)
+```
+
+# Precision and Recall
+
+```{r}
+# True Positives
+
+sqldf("select Tool, count(*) from tools 
+       where TestCase in (select TestCase from gt where Vulnerability = 'true')
+       group by Tool")
+
+# False Positives
+sqldf("select Tool, count(*) from tools 
+       where TestCase not in (select TestCase from gt where Vulnerability = 'true')
+       group by Tool")
+
+sqldf("select Tool, TestCase from tools 
+       where Tool = 'horusec' and 
+             TestCase not in (select TestCase from gt where Vulnerability = 'true')")
+
+# False Negatives
+
+for(tc in unique(tools$Tool)) {
+  print(tc)
+  sql <- sprintf(
+    "select count(*) 
+     from gt 
+     where Vulnerability = 'true' and 
+           TestCase not in (select TestCase from tools where Tool = '%s')", tc
+    )
+  print(sqldf(sql))
+}
+
+```
